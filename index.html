@@ -810,6 +810,7 @@ let _unsubscribe = null; // Firestore listener unsubscriber
 // ===== SAVE / LOAD / AUTOSAVE =====
 function saveData(silent=false){
   // Sempre salva no localStorage como backup offline
+  S._savedAt = new Date().toISOString();
   localStorage.setItem('fin_v3', JSON.stringify(S));
   // Se logado, salva no Firestore também
   if(currentUser){
@@ -834,6 +835,7 @@ let _autosaveTimer=null;
 function autosave(){
   clearTimeout(_autosaveTimer);
   _autosaveTimer=setTimeout(()=>{
+    S._savedAt = new Date().toISOString();
     localStorage.setItem('fin_v3',JSON.stringify(S));
     if(currentUser){
       db.collection('usuarios').doc(currentUser.uid).set({dados:JSON.stringify(S),updatedAt:new Date().toISOString()})
@@ -902,37 +904,82 @@ auth.onAuthStateChanged(user=>{
   }
 });
 
+// Calcula um "score" de riqueza dos dados para decidir qual versão usar
+function scoreDados(d){
+  if(!d) return 0;
+  let score = 0;
+  score += (d.months||[]).length * 100;          // cada mês vale 100
+  score += (d.assinaturas||[]).length * 10;       // cada assinatura vale 10
+  score += (d.parcelamentos||[]).length * 10;     // cada parcelamento vale 10
+  score += (d.fundos||[]).length * 10;            // cada fundo vale 10
+  score += (d.fornecedores||[]).length * 10;      // cada fornecedor vale 10
+  // soma lançamentos de todos os meses
+  Object.values(d.data||{}).forEach(m=>{
+    score += (m.despesas||[]).length * 2;
+    score += (m.receitas||[]).length * 2;
+  });
+  // timestamp como desempate (mais recente ganha se scores iguais)
+  score += d._savedAt ? new Date(d._savedAt).getTime()/1e12 : 0;
+  return score;
+}
+
 function carregarDoFirestore(uid){
   setSyncIndicator('⏳ carregando...');
   db.collection('usuarios').doc(uid).get()
     .then(doc=>{
+      const localRaw = localStorage.getItem('fin_v3');
+      let dadosLocal = null;
+      try{ dadosLocal = localRaw ? JSON.parse(localRaw) : null; } catch(e){}
+
       if(doc.exists && doc.data().dados){
-        try{
-          const dadosNuvem=JSON.parse(doc.data().dados);
-          // Compara timestamps: usa o mais recente
-          const tsNuvem=new Date(doc.data().updatedAt||0).getTime();
-          const localRaw=localStorage.getItem('fin_v3');
-          const tsLocal=localRaw?new Date(JSON.parse(localRaw)._updatedAt||0).getTime():0;
-          if(tsNuvem>=tsLocal){
-            S=dadosNuvem;
-            // Safety guards
+        let dadosNuvem = null;
+        try{ dadosNuvem = JSON.parse(doc.data().dados); } catch(e){}
+
+        if(dadosNuvem){
+          const scoreNuvem = scoreDados(dadosNuvem);
+          const scoreLocal = scoreDados(dadosLocal);
+
+          console.log('[sync] score nuvem:', scoreNuvem, '| score local:', scoreLocal);
+
+          if(scoreNuvem >= scoreLocal){
+            // Nuvem tem mais dados — usa nuvem
+            S = dadosNuvem;
             aplicarSafetyGuards();
-            localStorage.setItem('fin_v3',JSON.stringify(S));
+            localStorage.setItem('fin_v3', JSON.stringify(S));
             setSyncIndicator('☁ dados da nuvem');
           } else {
-            setSyncIndicator('💾 dados locais');
+            // Local tem mais dados — usa local e sobe para nuvem
+            console.warn('[sync] dados locais mais ricos — subindo para nuvem');
+            S = dadosLocal;
+            aplicarSafetyGuards();
+            S._savedAt = new Date().toISOString();
+            db.collection('usuarios').doc(uid).set({
+              dados: JSON.stringify(S),
+              updatedAt: S._savedAt
+            });
+            localStorage.setItem('fin_v3', JSON.stringify(S));
+            setSyncIndicator('☁ local → nuvem');
           }
-        } catch(e){ setSyncIndicator(''); }
-      } else {
-        // Primeira vez neste dispositivo — sobe dados locais para nuvem
-        if(Object.keys(S).length){
-          db.collection('usuarios').doc(uid).set({dados:JSON.stringify(S),updatedAt:new Date().toISOString()});
         }
-        setSyncIndicator('☁ pronto');
+      } else {
+        // Nuvem vazia — primeira vez. Sobe dados locais se existirem
+        if(dadosLocal && scoreDados(dadosLocal) > 0){
+          console.log('[sync] nuvem vazia — subindo dados locais');
+          S = dadosLocal;
+          aplicarSafetyGuards();
+          S._savedAt = new Date().toISOString();
+          db.collection('usuarios').doc(uid).set({
+            dados: JSON.stringify(S),
+            updatedAt: S._savedAt
+          });
+          setSyncIndicator('☁ dados enviados para nuvem');
+        } else {
+          setSyncIndicator('☁ pronto — sem dados anteriores');
+        }
       }
-      // Inicializa e renderiza
+
       iniciarApp();
-      setTimeout(()=>setSyncIndicator(''),4000);
+      setTimeout(()=>setSyncIndicator(''), 5000);
     })
     .catch(err=>{
       console.error('Firestore load error:', err);
