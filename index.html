@@ -198,6 +198,7 @@ select option{background:var(--bg3)}
   <div style="display:flex;gap:8px;margin-bottom:1.25rem;flex-wrap:wrap">
     <button class="btn btn-primary" onclick="openModal('despesa')">+ Nova Despesa</button>
     <button class="btn btn-ghost" onclick="openModal('receita')">+ Nova Receita</button>
+    <button class="btn btn-ghost" onclick="openAddTransferencia()" style="color:var(--blue);border-color:var(--blue-b)">→ Transferência</button>
     <button class="btn btn-ghost" onclick="openAddRecorrente()" style="color:var(--purple);border-color:var(--purple-b)">↻ Nova Recorrente</button>
     <button class="btn btn-ghost btn-sm" onclick="openGerenciarCats()" style="margin-left:auto;color:var(--text3)" title="Gerenciar categorias e modalidades">⚙ Categorias e Modalidades</button>
   </div>
@@ -216,10 +217,10 @@ select option{background:var(--bg3)}
     <div class="card">
       <div class="card-title">Despesas <span id="total-desp-lanc" style="font-family:'DM Mono',monospace;color:var(--red)"></span></div>
       <div class="filters">
-        <input type="text" id="f-desp-txt" placeholder="Buscar..." style="width:130px" oninput="renderLancamentos()">
-        <select id="f-desp-cat" style="width:130px" onchange="renderLancamentos()"><option value="">Todas categorias</option></select>
-        <select id="f-desp-mod" style="width:120px" onchange="renderLancamentos()"><option value="">Todas modalidades</option></select>
-        <select id="f-desp-sort" style="width:130px" onchange="renderLancamentos()">
+        <input type="text" id="f-desp-txt" placeholder="Buscar..." style="width:120px" oninput="renderLancamentos()">
+        <select id="f-desp-cat" style="width:120px" onchange="renderLancamentos()"><option value="">Todas categorias</option></select>
+        <select id="f-desp-mod" style="width:110px" onchange="renderLancamentos()"><option value="">Todas modalidades</option></select>
+<select id="f-desp-sort" style="width:120px" onchange="renderLancamentos()">
           <option value="data-asc">Data ↑</option>
           <option value="data-desc">Data ↓</option>
           <option value="valor-desc">Maior valor</option>
@@ -234,6 +235,15 @@ select option{background:var(--bg3)}
       <div class="card-title">Receitas <span id="total-rec-lanc" style="font-family:'DM Mono',monospace;color:var(--green)"></span></div>
       <div class="table-wrap"><table><thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th>Valor</th><th></th></tr></thead><tbody id="tbody-rec"></tbody></table></div>
     </div>
+  </div>
+
+  <!-- Transferências -->
+  <div class="card" style="margin-top:0" id="card-transferencias">
+    <div class="card-title">
+      Transferências
+      <span style="font-size:11px;color:var(--text3);font-weight:400">Não contam como despesa — apenas registro de destino do dinheiro</span>
+    </div>
+    <div id="transferencias-lista"></div>
   </div>
 </div>
 
@@ -623,6 +633,30 @@ select option{background:var(--bg3)}
     <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="addCat()">Salvar</button></div>
   </div>
 
+  <!-- Modal Transferência -->
+  <div id="modal-transferencia" class="modal" style="display:none;max-width:460px">
+    <div class="modal-title"><span id="mt-title">Nova Transferência</span><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <input type="hidden" id="mt-id">
+    <div class="form-row">
+      <div class="form-group"><label>Data</label><input type="date" id="mt-data"></div>
+      <div class="form-group"><label>Valor (R$)</label><input type="number" id="mt-valor" step="0.01" min="0" placeholder="0.00"></div>
+    </div>
+    <div class="form-group"><label>Destino</label>
+      <select id="mt-destino">
+        <option value="Investimentos">📈 Investimentos</option>
+        <option value="Caixa do Casamento">💍 Caixa do Casamento</option>
+        <option value="Poupança">🏦 Poupança</option>
+        <option value="Reserva de Emergência">🛡 Reserva de Emergência</option>
+        <option value="Outro">Outro</option>
+      </select>
+    </div>
+    <div class="form-group"><label>Observação (opcional)</label><input type="text" id="mt-obs" placeholder="Ex: aporte mensal, meta de julho..."></div>
+    <div style="background:var(--blue-bg);border:1px solid var(--blue-b);border-radius:8px;padding:9px 12px;font-size:12px;color:var(--blue);margin-bottom:12px">
+      → Este valor <strong>não entra como despesa</strong> — apenas fica registrado como movimentação de dinheiro entre contas/objetivos.
+    </div>
+    <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="saveTransferencia()">Salvar</button></div>
+  </div>
+
   <div id="modal-addmesprov" class="modal" style="display:none;max-width:380px">
     <div class="modal-title"><span>Adicionar Mês de Proventos</span><button class="modal-close" onclick="closeModal()">✕</button></div>
     <div class="form-group"><label>Nome</label><input type="text" id="mp-nome" placeholder="Ex: Mai/26"></div>
@@ -778,6 +812,7 @@ let S = {
   modColors:{},
   patrimHist:[],
   fornecedores:[],
+  transferencias:[],
   casCats:['Buffet','Fotografia','Filmagem','Decoração','Vestido','Traje','Salão','Música / DJ','Convites','Bolo','Igreja / Cerimônia','Lua de mel','Alianças','Outros'],
   casGuardado:0
 };
@@ -997,6 +1032,8 @@ function aplicarSafetyGuards(){
   if(!S.modColors)S.modColors={};
   if(!S.patrimHist)S.patrimHist=[];
   if(!S.fornecedores)S.fornecedores=[];
+  if(!S.transferencias)S.transferencias=[];
+if(!S.transferencias)S.transferencias=[];
   if(!S.casCats||!S.casCats.length)S.casCats=['Buffet','Fotografia','Filmagem','Decoração','Vestido','Traje','Salão','Música / DJ','Convites','Bolo','Igreja / Cerimônia','Lua de mel','Alianças','Outros'];
   if(S.casGuardado===undefined)S.casGuardado=0;
   if(!S.assinaturas)S.assinaturas=[];
@@ -1269,6 +1306,9 @@ function renderLancamentos(){
       <button class="btn btn-ghost btn-sm" onclick="editLanc('${x.id}','despesa')" style="padding:3px 7px;font-size:11px">✏</button>
       <button class="btn btn-danger btn-sm" onclick="delLanc('${x.id}','despesa')" style="padding:3px 6px;font-size:11px;margin-left:2px">✕</button>
     </td></tr>`).join(''):'<tr><td colspan="6" class="empty">Nenhuma despesa</td></tr>';
+
+  // Renderiza transferências
+  renderTransferencias();
   const filtR=[...d.receitas].sort((a,b)=>a.data.localeCompare(b.data));
   document.getElementById('tbody-rec').innerHTML=filtR.length?filtR.map(x=>`<tr>
     <td style="font-family:'DM Mono',monospace;font-size:12px;color:var(--text3)">${fmtD(x.data)}</td>
@@ -1872,7 +1912,7 @@ function addMesProv(){const nome=document.getElementById('mp-nome').value.trim()
 
 // ===== MODAL HELPERS =====
 function show(id){document.getElementById(id).style.display=id==='modal-overlay'?'flex':'block'}
-function closeModal(){document.getElementById('modal-overlay').style.display='none';['modal-lanc','modal-assin','modal-parc','modal-fundo','modal-aquisicao','modal-newmonth','modal-addcat','modal-addmesprov','modal-recorrente','modal-gerenciar-cats','modal-fornecedor','modal-pagamento-forn','modal-cas-cats'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none'})}
+function closeModal(){document.getElementById('modal-overlay').style.display='none';['modal-lanc','modal-assin','modal-parc','modal-fundo','modal-aquisicao','modal-newmonth','modal-addcat','modal-addmesprov','modal-recorrente','modal-gerenciar-cats','modal-fornecedor','modal-pagamento-forn','modal-cas-cats','modal-transferencia'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none'})}
 function closeModalOverlay(e){if(e.target===document.getElementById('modal-overlay'))closeModal()}
 
 // ===== BRAPI — COTAÇÕES EM TEMPO REAL =====
@@ -2352,6 +2392,7 @@ if(!S.mods||!S.mods.length)S.mods=[...MODS_DEFAULT];
 if(!S.modColors)S.modColors={};
 if(!S.patrimHist)S.patrimHist=[];
 if(!S.fornecedores)S.fornecedores=[];
+if(!S.transferencias)S.transferencias=[];
 if(!S.casCats||!S.casCats.length)S.casCats=['Buffet','Fotografia','Filmagem','Decoração','Vestido','Traje','Salão','Música / DJ','Convites','Bolo','Igreja / Cerimônia','Lua de mel','Alianças','Outros'];
 if(S.casGuardado===undefined)S.casGuardado=0;
   const obj={id:eid||uid(),desc,valor,dia,mod,cat,ativa};
@@ -2539,6 +2580,7 @@ function importBackup(event){
       if(!S.modColors)S.modColors={};
       if(!S.patrimHist)S.patrimHist=[];
 if(!S.fornecedores)S.fornecedores=[];
+if(!S.transferencias)S.transferencias=[];
 if(!S.casCats||!S.casCats.length)S.casCats=['Buffet','Fotografia','Filmagem','Decoração','Vestido','Traje','Salão','Música / DJ','Convites','Bolo','Igreja / Cerimônia','Lua de mel','Alianças','Outros'];
 if(S.casGuardado===undefined)S.casGuardado=0;
       if(!S.aquisicoes)S.aquisicoes=[];
@@ -3055,6 +3097,85 @@ function salvarGuardado(){
   saveData(true);
   renderCaixaCasamento();
   toast('✓ Valor guardado atualizado para '+brl(val));
+}
+
+// ===== TRANSFERÊNCIAS =====
+function renderTransferencias(){
+  const d=curData();
+  const trans=(S.transferencias||[]).filter(t=>t.mes===S.curMonth);
+  const el=document.getElementById('transferencias-lista');
+  if(!el) return;
+  const destIcons={'Investimentos':'📈','Caixa do Casamento':'💍','Poupança':'🏦','Reserva de Emergência':'🛡','Outro':'→'};
+  const destColors={'Investimentos':'badge-green','Caixa do Casamento':'badge-purple','Poupança':'badge-blue','Reserva de Emergência':'badge-blue','Outro':'badge-gray'};
+  if(!trans.length){
+    el.innerHTML='<div style="padding:12px;text-align:center;font-size:13px;color:var(--text3)">Nenhuma transferência registrada neste mês. Use o botão <strong style="color:var(--blue)">→ Transferência</strong> para registrar.</div>';
+    return;
+  }
+  const totalTrans=trans.reduce((s,t)=>s+t.valor,0);
+  el.innerHTML=`
+    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+      ${trans.map(t=>`
+      <div style="background:var(--bg3);border:1px solid var(--blue-b);border-radius:10px;padding:10px 14px;display:flex;align-items:center;gap:10px;min-width:220px;flex:1">
+        <span style="font-size:22px">${destIcons[t.destino]||'→'}</span>
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:500;color:var(--text)">${t.destino}</div>
+          <div style="font-size:11px;color:var(--text3)">${fmtD(t.data)}${t.obs?' · '+t.obs:''}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-family:'DM Mono',monospace;font-size:15px;font-weight:600;color:var(--blue)">${brl(t.valor)}</div>
+          <div style="display:flex;gap:4px;margin-top:4px;justify-content:flex-end">
+            <button class="btn btn-ghost btn-sm" onclick="editTransferencia('${t.id}')" style="padding:2px 7px;font-size:11px">✏</button>
+            <button class="btn btn-danger btn-sm" onclick="delTransferencia('${t.id}')" style="padding:2px 6px;font-size:11px">✕</button>
+          </div>
+        </div>
+      </div>`).join('')}
+    </div>
+    <div style="padding:8px 12px;background:var(--bg4);border-radius:8px;font-size:12px;color:var(--text3);display:flex;justify-content:space-between">
+      <span>Total transferido em ${S.curMonth}</span>
+      <span style="font-family:'DM Mono',monospace;color:var(--blue);font-weight:600">${brl(totalTrans)}</span>
+    </div>`;
+}
+
+function openAddTransferencia(){
+  show('modal-overlay');show('modal-transferencia');
+  document.getElementById('mt-id').value='';
+  document.getElementById('mt-title').textContent='Nova Transferência';
+  document.getElementById('mt-data').value=new Date().toISOString().split('T')[0];
+  document.getElementById('mt-valor').value='';
+  document.getElementById('mt-obs').value='';
+  document.getElementById('mt-destino').value='Investimentos';
+}
+
+function editTransferencia(id){
+  const t=(S.transferencias||[]).find(x=>x.id===id);if(!t)return;
+  show('modal-overlay');show('modal-transferencia');
+  document.getElementById('mt-id').value=id;
+  document.getElementById('mt-title').textContent='Editar Transferência';
+  document.getElementById('mt-data').value=t.data;
+  document.getElementById('mt-valor').value=t.valor;
+  document.getElementById('mt-destino').value=t.destino;
+  document.getElementById('mt-obs').value=t.obs||'';
+}
+
+function saveTransferencia(){
+  const eid=document.getElementById('mt-id').value;
+  const data=document.getElementById('mt-data').value;
+  const valor=parseFloat(document.getElementById('mt-valor').value)||0;
+  const destino=document.getElementById('mt-destino').value;
+  const obs=document.getElementById('mt-obs').value.trim();
+  if(!valor||!data){toast('⚠ Preencha data e valor',true);return}
+  if(!S.transferencias)S.transferencias=[];
+  const obj={id:eid||uid(),data,valor,destino,obs,mes:S.curMonth};
+  if(eid){const i=S.transferencias.findIndex(x=>x.id===eid);if(i>=0)S.transferencias[i]=obj}
+  else S.transferencias.push(obj);
+  closeModal();saveData(true);renderLancamentos();
+  toast('✓ Transferência para '+destino+' registrada!');
+}
+
+function delTransferencia(id){
+  if(!confirm('Remover esta transferência?'))return;
+  S.transferencias=S.transferencias.filter(x=>x.id!==id);
+  saveData(true);renderLancamentos();toast('Transferência removida');
 }
 
 // ===== BOOT =====
